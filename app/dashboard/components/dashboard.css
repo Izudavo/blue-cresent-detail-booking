@@ -1,0 +1,126 @@
+.dashboard-auth {
+  background: radial-gradient(circle at 80% 10%, rgb(0 0 0 / 0.06), transparent 28rem), #f4f4f1;
+  color: #000;
+}
+
+.dashboard-auth .auth-field {
+  display: block;
+  color: rgb(0 0 0 / 0.7);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dashboard-auth .auth-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 0.5rem;
+  border: 1px solid rgb(0 0 0 / 0.18);
+  padding: 0.75rem 0.85rem;
+  color: rgb(0 0 0 / 0.45);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.dashboard-auth .auth-input-wrap:focus-within {
+  border-color: #000;
+  box-shadow: 0 0 0 3px rgb(0 0 0 / 0.08);
+}
+
+.dashboard-auth input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #000;
+  font-size: 0.9rem;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.dashboard-auth input::placeholder {
+  color: rgb(0 0 0 / 0.35);
+}
+
+.dashboard-surface {
+  background: #fff;
+  color: #000;
+}
+
+.dashboard-surface [class*="text-white"] {
+  color: #000 !important;
+}
+
+.dashboard-surface [class*="text-white/"] {
+  color: rgb(0 0 0 / 0.58) !important;
+}
+
+.dashboard-surface [class*="border-white"] {
+  border-color: rgb(0 0 0 / 0.14) !important;
+}
+
+.dashboard-surface [class*="bg-white"] {
+  background-color: #fff !important;
+}
+
+.dashboard-surface aside,
+.dashboard-surface header,
+.dashboard-surface section {
+  background-color: #fff;
+}
+
+.dashboard-surface aside {
+  border-color: rgb(0 0 0 / 0.12) !important;
+}
+
+.dashboard-surface select {
+  background: #fff !important;
+  color: #000 !important;
+  border-color: rgb(0 0 0 / 0.15) !important;
+}
+
+.dashboard-surface select option {
+  background: #fff;
+  color: #000;
+}
+
+.dashboard-surface button.bg-black {
+  background-color: #000 !important;
+  color: #fff !important;
+}
+
+.dashboard-surface .bg-black {
+  background-color: #fff;
+}
+
+.dashboard-surface button.fixed {
+  background-color: rgb(0 0 0 / 0.75);
+}
+
+.dashboard-surface .editor-field input,
+.dashboard-surface .editor-field textarea {
+  width: 100%;
+  border: 1px solid rgb(0 0 0 / 0.16);
+  border-radius: 0.5rem;
+  background: rgb(0 0 0 / 0.03);
+  color: #000;
+  padding: 0.7rem 0.8rem;
+  outline: none;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.dashboard-surface .editor-field input:hover,
+.dashboard-surface .editor-field textarea:hover,
+.dashboard-surface .editor-field input:focus,
+.dashboard-surface .editor-field textarea:focus {
+  border-color: #000;
+  background: #fff;
+}
+
+.dashboard-surface .editor-field input:focus,
+.dashboard-surface .editor-field textarea:focus {
+  box-shadow: 0 0 0 3px rgb(0 0 0 / 0.08);
+}
