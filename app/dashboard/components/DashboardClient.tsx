@@ -71,6 +71,10 @@ export function DashboardClient({
     AvailabilityOverride[]
   >(initialAvailabilityOverrides);
 
+  const pending_booking_count = initialBookings.filter(
+    (booking) => booking.status === "PENDING",
+  ).length;
+
   const [editingPackage, setEditingPackage] = useState<PackageItem | null>(
     null,
   );
@@ -268,9 +272,10 @@ export function DashboardClient({
     <main className="dashboard-surface relative min-h-screen bg-white font-sans text-black">
       {isLoading && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm">
+          {" "}
           <div className="flex items-center gap-3 rounded-xl border border-black/10 bg-white px-5 py-3.5 shadow-xl">
+            {" "}
             <Loader2 className="size-5 animate-spin text-black" />
-
             <span className="text-sm font-medium text-black">
               Processing...
             </span>
@@ -300,6 +305,7 @@ export function DashboardClient({
         <section className="flex min-w-0 flex-1 flex-col">
           <DashboardHeader
             adminUsername={adminUsername}
+            pendingBookingCount={pending_booking_count}
             onMenu={() => setMobileNavOpen(true)}
           />
 

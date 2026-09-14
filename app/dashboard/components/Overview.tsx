@@ -4,9 +4,11 @@ import {
   ArrowUpRight,
   Bell,
   CalendarDays,
+  CheckCircle2,
   Clock3,
   Image as ImageIcon,
   X,
+  XCircle,
 } from "lucide-react";
 import { useEffect, useMemo, useState, useTransition } from "react";
 
@@ -18,10 +20,10 @@ import { get_vehicle_image_view_url } from "@/lib/server/storage/storage.admin.a
 import type { AdminBookingResult } from "@/lib/server/booking/booking.admin.types";
 
 const statusStyles: Record<BookingStatus, string> = {
-  PENDING: "border-black/20 bg-black/[0.04] text-black",
-  CONFIRMED: "border-black bg-black text-white",
-  COMPLETED: "border-black/15 bg-black/[0.03] text-black/50",
-  CANCELLED: "border-black/15 bg-black/[0.06] text-black/40",
+  PENDING: "border-amber-200 bg-amber-50 text-amber-700",
+  CONFIRMED: "border-blue-200 bg-blue-50 text-blue-700",
+  COMPLETED: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  CANCELLED: "border-red-200 bg-red-50 text-red-700",
 };
 
 const statusLabels: Record<BookingStatus, string> = {
@@ -29,6 +31,13 @@ const statusLabels: Record<BookingStatus, string> = {
   CONFIRMED: "Confirmed",
   COMPLETED: "Completed",
   CANCELLED: "Cancelled",
+};
+
+const allowed_status_transitions: Record<BookingStatus, BookingStatus[]> = {
+  PENDING: ["CONFIRMED", "CANCELLED"],
+  CONFIRMED: ["COMPLETED", "CANCELLED"],
+  COMPLETED: [],
+  CANCELLED: [],
 };
 
 function format_date(date: Date) {
@@ -70,6 +79,14 @@ function format_vehicle_type(vehicle_type: string) {
   return "Car";
 }
 
+function get_status_error_message(error: unknown) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return "Unable to update the booking status. Please try again.";
+}
+
 export function Overview({
   initial_bookings,
 }: {
@@ -81,6 +98,12 @@ export function Overview({
     useState<AdminBookingResult | null>(null);
 
   const [is_pending, startTransition] = useTransition();
+
+  const [snackbar_message, setSnackbarMessage] = useState<string | null>(null);
+
+  const [snackbar_type, setSnackbarType] = useState<"success" | "error">(
+    "success",
+  );
 
   const new_bookings = useMemo(
     () => bookings.filter((booking) => booking.status === "PENDING").length,
@@ -124,6 +147,25 @@ export function Overview({
     return `${average_hours.toFixed(1)}h`;
   }, [bookings]);
 
+  useEffect(() => {
+    if (!snackbar_message) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setSnackbarMessage(null);
+    }, 4000);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [snackbar_message]);
+
+  function show_snackbar(message: string, type: "success" | "error") {
+    setSnackbarMessage(message);
+    setSnackbarType(type);
+  }
+
   async function handle_status_change(
     booking_id: string,
     status: BookingStatus,
@@ -137,6 +179,22 @@ export function Overview({
     );
 
     if (!optimistic_booking) {
+      return;
+    }
+
+    /*
+     * Prevent invalid lifecycle changes in the UI before making
+     * the server request. The backend still validates this as
+     * the final source of truth.
+     */
+    if (
+      !allowed_status_transitions[optimistic_booking.status].includes(status)
+    ) {
+      show_snackbar(
+        `Booking cannot be changed from ${statusLabels[optimistic_booking.status]} to ${statusLabels[status]}.`,
+        "error",
+      );
+
       return;
     }
 
@@ -171,10 +229,17 @@ export function Overview({
         if (selected_booking?.id === saved_booking.id) {
           setSelectedBooking(saved_booking);
         }
+
+        show_snackbar(
+          `Booking status updated to ${statusLabels[saved_booking.status]}.`,
+          "success",
+        );
       } catch (error) {
         setBookings(previous_bookings);
 
         setSelectedBooking(previous_selected_booking);
+
+        show_snackbar(get_status_error_message(error), "error");
 
         console.error("Failed to update booking status:", error);
       }
@@ -246,87 +311,94 @@ export function Overview({
             </thead>
 
             <tbody className="divide-y divide-black/10 text-black/70">
-              {displayed_bookings.map((booking) => (
-                <tr
-                  key={booking.id}
-                  tabIndex={0}
-                  role="button"
-                  onClick={() => setSelectedBooking(booking)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
+              {displayed_bookings.map((booking) => {
+                const available_statuses =
+                  allowed_status_transitions[booking.status];
 
-                      setSelectedBooking(booking);
-                    }
-                  }}
-                  className="cursor-pointer transition hover:bg-black/[0.03] focus:bg-black/[0.03] focus:outline-none"
-                >
-                  <td className="px-4 py-2.5">
-                    <div className="flex items-center gap-2.5">
-                      <span className="grid size-7 shrink-0 place-items-center rounded-full border border-black/15 bg-black text-[10px] font-bold text-white">
-                        {get_initials(booking.customer_name)}
-                      </span>
+                return (
+                  <tr
+                    key={booking.id}
+                    tabIndex={0}
+                    role="button"
+                    onClick={() => setSelectedBooking(booking)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
 
-                      <div>
-                        <p className="font-semibold leading-tight text-black">
-                          {booking.customer_name}
-                        </p>
-
-                        <p className="text-[11px] text-black/45">
-                          {booking.vehicle_details}
-                        </p>
-                      </div>
-                    </div>
-                  </td>
-
-                  <td className="px-3 py-2.5 font-medium text-black/70">
-                    {booking.package_name}
-                  </td>
-
-                  <td className="px-3 py-2.5">
-                    <p className="text-black/80">
-                      {format_date(booking.appointment_date)}
-                    </p>
-
-                    <p className="text-[11px] text-black/45">
-                      {format_time(booking.appointment_start_time)} –{" "}
-                      {format_time(booking.appointment_end_time)}
-                    </p>
-                  </td>
-
-                  <td className="px-3 py-2.5">
-                    <span
-                      className={`inline-flex rounded border px-2 py-0.5 text-[10px] font-bold ${statusStyles[booking.status]}`}
-                    >
-                      {statusLabels[booking.status]}
-                    </span>
-                  </td>
-
-                  <td className="px-4 py-2.5 text-right">
-                    <select
-                      aria-label={`Update status for ${booking.customer_name}`}
-                      value={booking.status}
-                      disabled={is_pending}
-                      onClick={(event) => event.stopPropagation()}
-                      onChange={(event) =>
-                        handle_status_change(
-                          booking.id,
-                          event.target.value as BookingStatus,
-                        )
+                        setSelectedBooking(booking);
                       }
-                      className="rounded-lg border border-black/15 bg-white px-2 py-1 text-xs font-medium text-black outline-none transition hover:border-black/30 focus:border-black disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <option value="PENDING">Pending</option>
+                    }}
+                    className="cursor-pointer transition hover:bg-black/[0.03] focus:bg-black/[0.03] focus:outline-none"
+                  >
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-2.5">
+                        <span className="grid size-7 shrink-0 place-items-center rounded-full border border-black/15 bg-black text-[10px] font-bold text-white">
+                          {get_initials(booking.customer_name)}
+                        </span>
 
-                      <option value="CONFIRMED">Confirmed</option>
+                        <div>
+                          <p className="font-semibold leading-tight text-black">
+                            {booking.customer_name}
+                          </p>
 
-                      <option value="COMPLETED">Completed</option>
+                          <p className="text-[11px] text-black/45">
+                            {booking.vehicle_details}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
 
-                      <option value="CANCELLED">Cancelled</option>
-                    </select>
-                  </td>
-                </tr>
-              ))}
+                    <td className="px-3 py-2.5 font-medium text-black/70">
+                      {booking.package_name}
+                    </td>
+
+                    <td className="px-3 py-2.5">
+                      <p className="text-black/80">
+                        {format_date(booking.appointment_date)}
+                      </p>
+
+                      <p className="text-[11px] text-black/45">
+                        {format_time(booking.appointment_start_time)} –{" "}
+                        {format_time(booking.appointment_end_time)}
+                      </p>
+                    </td>
+
+                    <td className="px-3 py-2.5">
+                      <span
+                        className={`inline-flex rounded border px-2 py-0.5 text-[10px] font-bold ${statusStyles[booking.status]}`}
+                      >
+                        {statusLabels[booking.status]}
+                      </span>
+                    </td>
+
+                    <td className="px-4 py-2.5 text-right">
+                      <select
+                        aria-label={`Update status for ${booking.customer_name}`}
+                        value={booking.status}
+                        disabled={is_pending || available_statuses.length === 0}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={(event) =>
+                          handle_status_change(
+                            booking.id,
+                            event.target.value as BookingStatus,
+                          )
+                        }
+                        className="rounded-lg border border-black/15 bg-white px-2 py-1 text-xs font-medium text-black outline-none transition hover:border-black/30 focus:border-black disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <option value={booking.status}>
+                          {statusLabels[booking.status]}
+                        </option>
+
+                        {available_statuses.map((next_status) => (
+                          <option key={next_status} value={next_status}>
+                            {statusLabels[next_status]}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                  </tr>
+                );
+              })}
 
               {displayed_bookings.length === 0 && (
                 <tr>
@@ -351,6 +423,42 @@ export function Overview({
           update_booking_status={handle_status_change}
           is_pending={is_pending}
         />
+      )}
+
+      {/* Snackbar */}
+      {snackbar_message && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-5 right-5 z-[70] w-[min(360px,calc(100vw-2rem))]"
+        >
+          <div
+            className={`flex items-start gap-3 rounded-xl border px-4 py-3 shadow-xl ${
+              snackbar_type === "error"
+                ? "border-red-200 bg-red-50 text-red-800"
+                : "border-emerald-200 bg-emerald-50 text-emerald-800"
+            }`}
+          >
+            {snackbar_type === "error" ? (
+              <XCircle className="mt-0.5 size-4 shrink-0" />
+            ) : (
+              <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+            )}
+
+            <p className="flex-1 text-xs font-semibold leading-relaxed">
+              {snackbar_message}
+            </p>
+
+            <button
+              type="button"
+              aria-label="Dismiss notification"
+              onClick={() => setSnackbarMessage(null)}
+              className="shrink-0 opacity-50 transition hover:opacity-100"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -427,6 +535,8 @@ function BookingDetails({
       is_mounted = false;
     };
   }, [booking.id, booking.vehicle_images]);
+
+  const available_statuses = allowed_status_transitions[booking.status];
 
   return (
     <div
@@ -599,7 +709,7 @@ function BookingDetails({
                 <div className="text-center">
                   <ImageIcon className="mx-auto size-5 text-black/30" />
 
-                  <p className="mt-1 text-xs font-medium text-black/45">
+                  <p className="mt-1 text-[10px] font-medium text-black/35">
                     No vehicle images uploaded
                   </p>
                 </div>
@@ -614,13 +724,25 @@ function BookingDetails({
                 Request Status
               </p>
 
-              <p className="text-xs text-black/45">Update status below.</p>
+              <div className="mt-1 flex items-center gap-2">
+                <span
+                  className={`inline-flex rounded border px-2 py-0.5 text-[10px] font-bold ${statusStyles[booking.status]}`}
+                >
+                  {statusLabels[booking.status]}
+                </span>
+
+                {available_statuses.length === 0 && (
+                  <span className="text-[10px] text-black/40">
+                    Final status
+                  </span>
+                )}
+              </div>
             </div>
 
             <select
               aria-label={`Update status for ${booking.customer_name}`}
               value={booking.status}
-              disabled={is_pending}
+              disabled={is_pending || available_statuses.length === 0}
               onChange={(event) =>
                 update_booking_status(
                   booking.id,
@@ -629,13 +751,15 @@ function BookingDetails({
               }
               className="rounded-lg border border-black/15 bg-white px-3 py-1.5 text-xs font-semibold text-black outline-none transition hover:border-black/30 focus:border-black disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <option value="PENDING">Pending</option>
+              <option value={booking.status}>
+                {statusLabels[booking.status]}
+              </option>
 
-              <option value="CONFIRMED">Confirmed</option>
-
-              <option value="COMPLETED">Completed</option>
-
-              <option value="CANCELLED">Cancelled</option>
+              {available_statuses.map((next_status) => (
+                <option key={next_status} value={next_status}>
+                  {statusLabels[next_status]}
+                </option>
+              ))}
             </select>
           </div>
         </div>

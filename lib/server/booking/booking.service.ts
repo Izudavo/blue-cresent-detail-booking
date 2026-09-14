@@ -1,7 +1,16 @@
 import { BookingStatus, Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import {
+  send_booking_cancelled_notification,
+  send_booking_confirmed_notification,
+  send_booking_received_notifications,
+} from "@/lib/server/email/email.notification.service";
+import {
+  send_new_booking_telegram_notification,
+} from "@/lib/server/telegram/telegram.notification.service";
 import { verify_vehicle_image } from "@/lib/server/storage/s3.service";
+
 import { map_admin_booking } from "./booking.admin.mapper";
 import type { AdminBookingResult } from "./booking.admin.types";
 
@@ -60,7 +69,7 @@ async function acquire_booking_date_lock(
   const lock_name = `bc:booking:${appointment_date}`;
 
   const result = await tx.$queryRaw<Array<{ locked: number | bigint | null }>>`
-    SELECT GET_LOCK(${lock_name}, 10) AS locked
+    SELECT GET_LOCK(${lock_name}, 2) AS locked
   `;
 
   if (Number(result[0]?.locked) !== 1) {
@@ -315,93 +324,100 @@ export async function create_booking(
    * date so concurrent booking requests for the same
    * date cannot pass the availability check together.
    */
-  const booking = await prisma.$transaction(async (tx) => {
-    const lock_name = await acquire_booking_date_lock(
-      tx,
-      input.appointment_date,
-    );
-
-    try {
-      /*
-       * Re-check availability immediately before
-       * creating the booking.
-       *
-       * This is the final source of truth because
-       * frontend availability can become stale.
-       */
-      await validate_booking_availability(
+  const booking = await prisma.$transaction(
+    async (tx) => {
+      const lock_name = await acquire_booking_date_lock(
         tx,
-        appointment_date,
         input.appointment_date,
-        input.appointment_start_time,
-        appointment_end_time,
       );
 
-      const created_booking = await tx.booking.create({
-        data: {
-          booking_reference: generate_booking_reference(),
-
-          customer_name: input.customer_name,
-          customer_email: input.customer_email,
-          customer_phone: input.customer_phone,
-          vehicle_details: input.vehicle_details,
-
+      try {
+        /*
+         * Re-check availability immediately before
+         * creating the booking.
+         *
+         * This is the final source of truth because
+         * frontend availability can become stale.
+         */
+        await validate_booking_availability(
+          tx,
           appointment_date,
-          appointment_start_time: input.appointment_start_time,
+          input.appointment_date,
+          input.appointment_start_time,
           appointment_end_time,
+        );
 
-          vehicle_type: input.vehicle_type,
+        const created_booking = await tx.booking.create({
+          data: {
+            booking_reference: generate_booking_reference(),
 
-          service_package_id: service_package.id,
-          package_name: service_package.name,
-          package_price: package_price_record.price,
-          package_duration_minutes: service_package.duration_minutes,
+            customer_name: input.customer_name,
+            customer_email: input.customer_email,
+            customer_phone: input.customer_phone,
+            vehicle_details: input.vehicle_details,
 
-          total_price,
+            appointment_date,
+            appointment_start_time: input.appointment_start_time,
+            appointment_end_time,
 
-          status: BookingStatus.PENDING,
+            vehicle_type: input.vehicle_type,
 
-          customer_notes: input.customer_notes ?? null,
+            service_package_id: service_package.id,
+            package_name: service_package.name,
+            package_price: package_price_record.price,
+            package_duration_minutes: service_package.duration_minutes,
 
-          add_ons: {
-            create: add_on_snapshots.map((add_on) => ({
-              add_on_id: add_on.add_on_id,
-              name: add_on.name,
-              price: add_on.price,
-              additional_minutes: add_on.additional_minutes,
-            })),
+            total_price,
+
+            status: BookingStatus.PENDING,
+
+            customer_notes: input.customer_notes ?? null,
+
+            add_ons: {
+              create: add_on_snapshots.map((add_on) => ({
+                add_on_id: add_on.add_on_id,
+                name: add_on.name,
+                price: add_on.price,
+                additional_minutes: add_on.additional_minutes,
+              })),
+            },
+
+            vehicle_images: {
+              create: verified_vehicle_images.map((image) => ({
+                storage_key: image.storage_key,
+                original_name: image.original_name,
+                content_type: image.content_type,
+                file_size: image.file_size,
+              })),
+            },
           },
 
-          vehicle_images: {
-            create: verified_vehicle_images.map((image) => ({
-              storage_key: image.storage_key,
-              original_name: image.original_name,
-              content_type: image.content_type,
-              file_size: image.file_size,
-            })),
+          include: {
+            add_ons: true,
+            vehicle_images: true,
           },
-        },
+        });
 
-        include: {
-          add_ons: true,
-        },
-      });
-
-      return created_booking;
-    } finally {
-      /*
-       * Always release the MySQL named lock,
-       * including when booking creation fails.
-       */
-      await release_booking_date_lock(tx, lock_name);
-    }
-  });
+        return created_booking;
+      } finally {
+        /*
+         * Always release the MySQL named lock,
+         * including when booking creation fails.
+         */
+        await release_booking_date_lock(tx, lock_name);
+      }
+    },
+    {
+      maxWait: 10000,
+      timeout: 15000,
+    },
+  );
 
   /*
    * Map Prisma's Decimal values into plain numbers
    * before returning the booking result.
    */
-  return {
+  const booking_result: BookingResult = {
     id: booking.id,
     booking_reference: booking.booking_reference,
 
@@ -438,16 +454,66 @@ export async function create_booking(
     cancelled_at: booking.cancelled_at,
     completed_at: booking.completed_at,
 
+    vehicle_images: booking.vehicle_images.map((image) => ({
+      id: image.id,
+      storage_key: image.storage_key,
+      original_name: image.original_name,
+      content_type: image.content_type,
+      file_size: image.file_size,
+    })),
+
     created_at: booking.created_at,
     updated_at: booking.updated_at,
   };
+
+  /*
+   * Send booking notification emails only after
+   * the database transaction has successfully committed.
+   *
+   * Email failures are handled internally so they
+   * cannot cause an otherwise successful booking to fail.
+   */
+  await send_booking_received_notifications(booking_result);
+
+  /*
+   * Send the initial Telegram alert only after the
+   * booking transaction has successfully committed.
+   *
+   * The initial alert contains the complete booking
+   * details and all vehicle images.
+   *
+   * Telegram failures must never cause the booking
+   * itself to fail.
+   */
+  const telegram_sent =
+    await send_new_booking_telegram_notification(
+      booking_result,
+    );
+
+  /*
+   * Record the first Telegram alert only when the
+   * complete initial notification succeeds.
+   *
+   * The escalation cron will use these fields to
+   * determine when the next reminder is due.
+   */
+  if (telegram_sent) {
+    await prisma.booking.update({
+      where: {
+        id: booking.id,
+      },
+
+      data: {
+        telegram_alert_count: 1,
+        telegram_last_alerted_at: new Date(),
+      },
+    });
+  }
+
+  return booking_result;
 }
 
-
-
-export async function get_admin_bookings(): Promise<
-  AdminBookingResult[]
-> {
+export async function get_admin_bookings(): Promise<AdminBookingResult[]> {
   const bookings = await prisma.booking.findMany({
     orderBy: [
       {
@@ -470,7 +536,6 @@ export async function get_admin_bookings(): Promise<
   return bookings.map(map_admin_booking);
 }
 
-
 export async function update_admin_booking_status(
   booking_id: string,
   status: BookingStatus,
@@ -485,6 +550,32 @@ export async function update_admin_booking_status(
     throw new Error("Booking not found.");
   }
 
+  /*
+   * Define the allowed booking lifecycle transitions.
+   *
+   * PENDING can be confirmed or cancelled.
+   * CONFIRMED can be completed or cancelled.
+   * COMPLETED and CANCELLED are terminal states.
+   */
+  const allowed_transitions: Record<BookingStatus, BookingStatus[]> = {
+    [BookingStatus.PENDING]: [
+      BookingStatus.CONFIRMED,
+      BookingStatus.CANCELLED,
+    ],
+    [BookingStatus.CONFIRMED]: [
+      BookingStatus.COMPLETED,
+      BookingStatus.CANCELLED,
+    ],
+    [BookingStatus.COMPLETED]: [],
+    [BookingStatus.CANCELLED]: [],
+  };
+
+  if (!allowed_transitions[booking.status].includes(status)) {
+    throw new Error(
+      `Booking cannot be changed from ${booking.status} to ${status}.`,
+    );
+  }
+
   const now = new Date();
 
   const updated_booking = await prisma.booking.update({
@@ -497,17 +588,17 @@ export async function update_admin_booking_status(
 
       confirmed_at:
         status === BookingStatus.CONFIRMED
-          ? booking.confirmed_at ?? now
+          ? (booking.confirmed_at ?? now)
           : booking.confirmed_at,
 
       cancelled_at:
         status === BookingStatus.CANCELLED
-          ? booking.cancelled_at ?? now
+          ? (booking.cancelled_at ?? now)
           : booking.cancelled_at,
 
       completed_at:
         status === BookingStatus.COMPLETED
-          ? booking.completed_at ?? now
+          ? (booking.completed_at ?? now)
           : booking.completed_at,
     },
 
@@ -517,5 +608,22 @@ export async function update_admin_booking_status(
     },
   });
 
-  return map_admin_booking(updated_booking);
+  const admin_booking = map_admin_booking(updated_booking);
+
+  /*
+   * Send customer notifications only after the
+   * booking status has been successfully updated.
+   *
+   * Email failures are handled internally so they
+   * cannot cause the status update to fail.
+   */
+  if (status === BookingStatus.CONFIRMED) {
+    await send_booking_confirmed_notification(admin_booking);
+  }
+
+  if (status === BookingStatus.CANCELLED) {
+    await send_booking_cancelled_notification(admin_booking);
+  }
+
+  return admin_booking;
 }

@@ -7,6 +7,18 @@ export interface BookingVehicleImageInput {
   file_size: number;
 }
 
+/*
+ * Persisted vehicle image record returned
+ * with a booking.
+ */
+export interface BookingVehicleImageResult {
+  id: string;
+  storage_key: string;
+  original_name: string | null;
+  content_type: string | null;
+  file_size: number | null;
+}
+
 export interface CreateBookingInput {
   customer_name: string;
   customer_email: string;
@@ -30,6 +42,7 @@ export interface BookingAddOnSnapshot {
 
 export interface BookingResult {
   id: string;
+
   booking_reference: string;
 
   customer_name: string;
@@ -60,6 +73,12 @@ export interface BookingResult {
   cancelled_at: Date | null;
   completed_at: Date | null;
 
+  /*
+   * Persisted vehicle images attached to the booking.
+   */
+  vehicle_images: BookingVehicleImageResult[];
+
   created_at: Date;
   updated_at: Date;
 }
+

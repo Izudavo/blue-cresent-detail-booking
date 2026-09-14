@@ -164,6 +164,9 @@ model Booking {
 
   status BookingStatus @default(PENDING)
 
+  telegram_alert_count     Int       @default(0)
+  telegram_last_alerted_at DateTime?
+
   customer_notes String? @db.Text
 
   confirmed_at DateTime?
@@ -181,6 +184,7 @@ model Booking {
   @@index([appointment_date, status])
   @@index([customer_email])
   @@index([status])
+  @@index([status, telegram_last_alerted_at])
   @@index([service_package_id])
   @@map("bookings")
 }

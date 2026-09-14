@@ -3,6 +3,13 @@ import { FallingCrescents } from "@/app/packages/sections/FallingCrescents";
 import { PackagesClient } from "@/app/packages/PackagesClient";
 import { get_catalog } from "@/lib/server/catalog/catalog.service";
 
+/*
+ * The package catalog is database-driven.
+ * Render this page dynamically so the database is queried
+ * when the page is requested instead of during the build.
+ */
+export const dynamic = "force-dynamic";
+
 export default async function PackagesPage() {
   const catalog = await get_catalog();
 

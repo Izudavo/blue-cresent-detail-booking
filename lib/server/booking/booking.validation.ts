@@ -1,6 +1,7 @@
 import type { VehicleType } from "@prisma/client";
 
 import type { CreateBookingInput } from "./booking.types";
+import { email_schema, us_phone_schema } from "@/lib/validation/contact";
 
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -59,23 +60,17 @@ function validate_vehicle_type(vehicle_type: VehicleType) {
 }
 
 function validate_email(email: string) {
-  const normalized_email = email.trim().toLowerCase();
+  const normalized_email = email_schema.safeParse(email);
 
-  if (!normalized_email) {
-    throw new Error("Email is required.");
-  }
-
-  if (normalized_email.length > MAX_EMAIL_LENGTH) {
-    throw new Error("Email is too long.");
-  }
-
-  const email_pattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-  if (!email_pattern.test(normalized_email)) {
+  if (!normalized_email.success) {
     throw new Error("Invalid email address.");
   }
 
-  return normalized_email;
+  if (normalized_email.data.length > MAX_EMAIL_LENGTH) {
+    throw new Error("Email is too long.");
+  }
+
+  return normalized_email.data;
 }
 
 function validate_vehicle_images(images: CreateBookingInput["vehicle_images"]) {
@@ -148,11 +143,13 @@ export function validate_create_booking_input(
 
   const customer_email = validate_email(input.customer_email);
 
-  const customer_phone = input.customer_phone.trim();
+  const customer_phone_result = us_phone_schema.safeParse(input.customer_phone);
 
-  if (!customer_phone) {
-    throw new Error("Customer phone is required.");
+  if (!customer_phone_result.success) {
+    throw new Error("Enter a valid US phone number.");
   }
+
+  const customer_phone = customer_phone_result.data;
 
   if (customer_phone.length > MAX_PHONE_LENGTH) {
     throw new Error("Customer phone is too long.");
