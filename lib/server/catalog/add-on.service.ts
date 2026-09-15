@@ -41,9 +41,13 @@ export async function create_add_on(add_on_data: CreateAddOnInput) {
 
 export async function update_add_on(add_on_data: AddOnItem) {
   return prisma.$transaction(async (tx) => {
+    /*
+     * The editor provides the database record ID,
+     * so the existing add-on must be looked up by id.
+     */
     const existing_add_on = await tx.addOn.findUnique({
       where: {
-        slug: add_on_data.id,
+        id: add_on_data.id,
       },
     });
 
@@ -58,7 +62,8 @@ export async function update_add_on(add_on_data: AddOnItem) {
       data: {
         name: add_on_data.name,
         price: add_on_data.price,
-        additional_minutes: add_on_data.additionalMinutes ?? null,
+        additional_minutes:
+          add_on_data.additionalMinutes ?? null,
       },
     });
 
